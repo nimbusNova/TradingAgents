@@ -99,6 +99,20 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Custom model ID", "custom"),
         ],
     },
+    "kimi": {
+        "quick": [
+            ("Kimi K2.5 - Fast, long-context (256K)", "kimi-k2-5"),
+            ("Kimi K2.5 Flash - Ultra-fast, 1M context", "kimi-k2-5-flash"),
+            ("Kimi K2 - Balanced reasoning", "kimi-k2"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("Kimi K2.5 Thinking - Reasoning, complex workflows", "kimi-k2-5-thinking"),
+            ("Kimi K2.5 - Fast, long-context (256K)", "kimi-k2-5"),
+            ("Kimi K2 - Balanced reasoning", "kimi-k2"),
+            ("Custom model ID", "custom"),
+        ],
+    },
     # OpenRouter: fetched dynamically. Azure: any deployed model name.
     "ollama": {
         "quick": [
