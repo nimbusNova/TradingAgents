@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-950 text-gray-100 antialiased;
+  }
+}
+
+/* Prose markdown styles */
+.prose-dark {
+  @apply text-gray-200 leading-relaxed;
+}
+.prose-dark h1, .prose-dark h2, .prose-dark h3 {
+  @apply text-white font-semibold mt-4 mb-2;
+}
+.prose-dark h1 { @apply text-2xl; }
+.prose-dark h2 { @apply text-xl; }
+.prose-dark h3 { @apply text-lg; }
+.prose-dark p  { @apply mb-3; }
+.prose-dark ul { @apply list-disc pl-5 mb-3 space-y-1; }
+.prose-dark ol { @apply list-decimal pl-5 mb-3 space-y-1; }
+.prose-dark strong { @apply text-white font-semibold; }
+.prose-dark code  { @apply bg-gray-800 px-1 py-0.5 rounded text-sm text-green-400; }
+.prose-dark pre   { @apply bg-gray-800 p-3 rounded my-3 overflow-x-auto; }
+.prose-dark hr    { @apply border-gray-700 my-4; }
+.prose-dark table { @apply w-full border-collapse my-3; }
+.prose-dark th { @apply border border-gray-700 px-3 py-2 text-left bg-gray-800 text-white; }
+.prose-dark td { @apply border border-gray-700 px-3 py-2; }

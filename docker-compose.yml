@@ -1,5 +1,32 @@
 services:
-  tradingagents:
+  # --- Backend: FastAPI + TradingAgentsGraph ---
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - tradingagents_data:/root/.tradingagents
+    restart: unless-stopped
+
+  # --- Frontend: Next.js ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      - BACKEND_URL=http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # --- CLI (original, kept for backwards compat) ---
+  tradingagents-cli:
     build: .
     env_file:
       - .env
@@ -7,7 +34,10 @@ services:
       - tradingagents_data:/home/appuser/.tradingagents
     tty: true
     stdin_open: true
+    profiles:
+      - cli
 
+  # --- Ollama (optional local LLM) ---
   ollama:
     image: ollama/ollama:latest
     volumes:
