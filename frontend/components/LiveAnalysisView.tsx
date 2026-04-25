@@ -5,6 +5,7 @@ import type { SseEvent, AgentStatus } from "@/lib/types";
 import AgentProgressPanel from "./AgentProgressPanel";
 import EventFeed from "./EventFeed";
 import ReportPanel from "./ReportPanel";
+import StatsBar from "./StatsBar";
 import FinalDecisionBadge from "./FinalDecisionBadge";
 import { streamRunUrl } from "@/lib/api";
 
@@ -103,7 +104,9 @@ export default function LiveAnalysisView({
 
   const completedAgents = Object.values(statuses).filter((s) => s === "completed").length;
   const totalAgents     = Object.keys(statuses).length;
-  const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2,"0")}:${String(s % 60).padStart(2,"0")}`;
+  const toolCallCount   = events.filter((e) => e.type === "tool_call").length;
+  const sectionsReady   = Object.values(sections).filter(Boolean).length;
+  const TOTAL_SECTIONS  = 7; // 4 analyst + investment_plan + trader_plan + final_decision
 
   return (
     <div className="space-y-4">
@@ -116,7 +119,6 @@ export default function LiveAnalysisView({
           </h1>
         </div>
         <div className="flex items-center gap-4 text-sm text-gray-400">
-          {!isDone && <span className="font-mono">{fmt(elapsed)}</span>}
           <span>{completedAgents}/{totalAgents} agents</span>
           {decision && <FinalDecisionBadge decision={decision} size="md" />}
           {isDone && (
@@ -136,11 +138,20 @@ export default function LiveAnalysisView({
         </div>
       )}
 
+      {/* Stats bar */}
+      <StatsBar
+        toolCalls={toolCallCount}
+        sectionsReady={sectionsReady}
+        totalSections={TOTAL_SECTIONS}
+        elapsedSeconds={elapsed}
+        isDone={isDone}
+      />
+
       {/* Main grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Left column: progress + feed */}
         <div className="space-y-4">
-          <AgentProgressPanel statuses={statuses} activeAgents={[]} />
+          <AgentProgressPanel statuses={statuses} />
           <EventFeed events={events} />
         </div>
 

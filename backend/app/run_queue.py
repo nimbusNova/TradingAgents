@@ -198,7 +198,7 @@ async def enqueue_run(run_id: str) -> int:
 async def queue_processor() -> None:
     """Background task — processes one run at a time."""
     global _current_run_id
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     while True:
         run_id = await _run_queue.get()
         _current_run_id = run_id
@@ -270,7 +270,7 @@ async def _process_run(run_id: str, loop: asyncio.AbstractEventLoop) -> None:
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()[-1000:]}"
 
-    await asyncio.get_event_loop().run_in_executor(None, _run_graph)
+    await asyncio.get_running_loop().run_in_executor(None, _run_graph)
 
     now = datetime.utcnow().isoformat()
 

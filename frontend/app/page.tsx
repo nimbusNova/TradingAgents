@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { listRuns } from "@/lib/api";
 import RunHistory from "@/components/RunHistory";
+import type { RunListItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  let runs = [];
+  let runs: RunListItem[] = [];
   try {
     runs = await listRuns();
   } catch {

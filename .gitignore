@@ -219,3 +219,10 @@ __marimo__/
 **/data_cache/
 
 reports
+
+# Next.js / frontend
+frontend/node_modules/
+frontend/.next/
+frontend/bun.lock
+frontend/next-env.d.ts
+frontend/*.tsbuildinfo

@@ -22,10 +22,8 @@ const COLORS: Record<AgentStatus, string> = {
 
 export default function AgentProgressPanel({
   statuses,
-  activeAgents,
 }: {
   statuses: Record<string, AgentStatus>;
-  activeAgents: string[];
 }) {
   return (
     <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">

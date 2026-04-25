@@ -1,10 +1,11 @@
 import { getMemory } from "@/lib/api";
 import MemoryLogView from "@/components/MemoryLogView";
+import type { MemoryEntry } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function MemoryPage() {
-  let entries = [];
+  let entries: MemoryEntry[] = [];
   try {
     entries = await getMemory();
   } catch {
