@@ -21,6 +21,7 @@ class RunState:
     events: list[dict] = field(default_factory=list)
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
     done: bool = False
+    user_id: str = ""
 
 
 _run_states: dict[str, RunState] = {}
@@ -183,8 +184,8 @@ def _parse_decision(text: str) -> str:
 # Queue entry point
 # ---------------------------------------------------------------------------
 
-async def enqueue_run(run_id: str) -> int:
-    rs = RunState()
+async def enqueue_run(run_id: str, user_id: str = "") -> int:
+    rs = RunState(user_id=user_id)
     _run_states[run_id] = rs
     position = _run_queue.qsize() + (1 if _current_run_id else 0)
     if position > 0:
@@ -227,7 +228,7 @@ async def _process_run(run_id: str, loop: asyncio.AbstractEventLoop) -> None:
 
     await db.update_run_status(run_id, "running")
 
-    rs = _run_states.setdefault(run_id, RunState())
+    rs = _run_states.setdefault(run_id, RunState(user_id=run_data.get("user_id", "")))
     ta_config  = _build_ta_config(config_data)
     tracker    = AgentTracker(analysts)
     final_state: dict | None = None
@@ -311,6 +312,16 @@ async def _process_run(run_id: str, loop: asyncio.AbstractEventLoop) -> None:
 
         await db.save_events_batch(run_id, rs.events)
         await db.update_run_status(run_id, "done", decision=decision, finished_at=now)
+
+        if rs.user_id:
+            await db.deduct_credit(rs.user_id, run_id)
+            await db.insert_trading_memory(
+                run_id=run_id,
+                ticker=ticker,
+                trade_date=trade_date,
+                rating=decision,
+                decision=sections.get("final_trade_decision", ""),
+            )
 
     rs.done = True
     # Keep in memory for 60 s so late-connecting SSE clients can drain

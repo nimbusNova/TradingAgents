@@ -4,80 +4,116 @@ import json
 import uuid
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ..models import RunRequest, RunResponse, RunListItem
 from .. import db, run_queue
+from ..auth import get_current_user
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
+def _cfg(row: dict) -> dict:
+    c = row.get("config") or "{}"
+    return json.loads(c) if isinstance(c, str) else c
+
+
 @router.post("", response_model=RunListItem, status_code=201)
-async def create_run(req: RunRequest):
+async def create_run(req: RunRequest, user: dict = Depends(get_current_user)):
+    ticker = req.ticker.upper()
+
+    # Same-week cache check
+    cached = await db.find_cached_run(ticker)
+    if cached:
+        new_run = await db.create_cache_hit_run(user["sub"], cached)
+        return RunListItem(
+            id=new_run["id"],
+            ticker=new_run["ticker"],
+            trade_date=str(new_run["trade_date"]),
+            status=new_run["status"],
+            decision=new_run.get("decision"),
+            llm_provider=_cfg(new_run).get("llm_provider", ""),
+            created_at=str(new_run["created_at"]),
+            finished_at=str(new_run["finished_at"]) if new_run.get("finished_at") else None,
+            cache_hit=True,
+        )
+
+    # Credit gate
+    balance = await db.get_credit_balance(user["sub"])
+    if balance <= 0:
+        raise HTTPException(status_code=402, detail="no_credits")
+
     run_id = str(uuid.uuid4())
     config = req.model_dump()
-    await db.create_run(run_id, req.ticker.upper(), req.analysis_date, config)
-    position = await run_queue.enqueue_run(run_id)
+    await db.create_run(run_id, ticker, req.analysis_date, config, user_id=user["sub"])
+    await run_queue.enqueue_run(run_id, user_id=user["sub"])
     row = await db.get_run(run_id)
-    cfg = json.loads(row["config"])
     return RunListItem(
         id=run_id,
         ticker=row["ticker"],
         trade_date=row["trade_date"],
         status=row["status"],
-        decision=row["decision"],
-        llm_provider=cfg.get("llm_provider", ""),
+        decision=row.get("decision"),
+        llm_provider=_cfg(row).get("llm_provider", ""),
         created_at=row["created_at"],
-        finished_at=row["finished_at"],
+        finished_at=row.get("finished_at"),
     )
 
 
 @router.get("", response_model=list[RunListItem])
-async def list_runs():
-    rows = await db.list_runs()
+async def list_runs(user: dict = Depends(get_current_user)):
+    rows = await db.list_runs(user_id=user["sub"])
     result = []
     for row in rows:
-        cfg = json.loads(row["config"])
         result.append(RunListItem(
             id=row["id"],
             ticker=row["ticker"],
             trade_date=row["trade_date"],
             status=row["status"],
-            decision=row["decision"],
-            llm_provider=cfg.get("llm_provider", ""),
+            decision=row.get("decision"),
+            llm_provider=_cfg(row).get("llm_provider", ""),
             created_at=row["created_at"],
-            finished_at=row["finished_at"],
+            finished_at=row.get("finished_at"),
         ))
     return result
 
 
 @router.get("/{run_id}", response_model=RunResponse)
-async def get_run(run_id: str):
+async def get_run(run_id: str, user: dict = Depends(get_current_user)):
     row = await db.get_run(run_id)
     if not row:
         raise HTTPException(status_code=404, detail="Run not found")
+
+    run_user = row.get("user_id")
+    if run_user is not None and run_user != user["sub"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     sections = await db.get_sections(run_id)
-    cfg = json.loads(row["config"])
+    cfg = _cfg(row)
     return RunResponse(
         id=row["id"],
         ticker=row["ticker"],
         trade_date=row["trade_date"],
         status=row["status"],
-        decision=row["decision"],
+        decision=row.get("decision"),
         llm_provider=cfg.get("llm_provider", ""),
         created_at=row["created_at"],
-        finished_at=row["finished_at"],
+        finished_at=row.get("finished_at"),
         config=cfg,
         sections=sections,
     )
 
 
 @router.get("/{run_id}/stream")
-async def stream_run(run_id: str):
+async def stream_run(run_id: str, user: dict = Depends(get_current_user)):
     row = await db.get_run(run_id)
     if not row:
         raise HTTPException(status_code=404, detail="Run not found")
+
+    run_user = row.get("user_id")
+    if run_user is not None and run_user != user["sub"]:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     async def event_generator() -> AsyncGenerator[str, None]:
         def fmt(event: dict) -> str:
@@ -85,7 +121,6 @@ async def stream_run(run_id: str):
 
         rs = run_queue.get_run_state(run_id)
         if rs:
-            # Stream buffered events first (replay), then subscribe to new ones
             buffered = list(rs.events)
             for ev in buffered:
                 yield fmt(ev)
@@ -100,7 +135,6 @@ async def stream_run(run_id: str):
                     except asyncio.TimeoutError:
                         yield ": keepalive\n\n"
         else:
-            # Run already finished — replay from DB
             events = await db.get_events(run_id)
             for ev in events:
                 yield fmt(ev)

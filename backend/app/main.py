@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -28,9 +29,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TradingAgents API", lifespan=lifespan)
 
+_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3001").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

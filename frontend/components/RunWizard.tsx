@@ -1,8 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { Provider } from "@/lib/types";
 import { createRun, listProviders } from "@/lib/api";
+
+const HOSTED = process.env.NEXT_PUBLIC_HOSTED_MODE === "true";
 
 const ANALYSTS = [
   { key: "market",       label: "Market Analyst",       desc: "Technical indicators, price action" },
@@ -32,6 +35,10 @@ const THINKING_OPTIONS = [
   { value: "high",    label: "Enabled (recommended)" },
 ];
 
+// Hosted mode has 4 steps (no Provider/Models); open-source has 6
+const HOSTED_STEPS = ["Ticker & Date", "Analysts", "Depth & Language", "Review"];
+const FULL_STEPS   = ["Ticker & Date", "Analysts", "Depth & Language", "Provider", "Models", "Review"];
+
 interface FormState {
   ticker: string;
   analysis_date: string;
@@ -52,10 +59,13 @@ function today() {
 
 export default function RunWizard() {
   const router = useRouter();
+  const STEPS = HOSTED ? HOSTED_STEPS : FULL_STEPS;
+
   const [step, setStep]           = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]         = useState("");
+  const [noCredits, setNoCredits] = useState(false);
   const [maxDate, setMaxDate]     = useState("");
   const [form, setForm]           = useState<FormState>({
     ticker: "",
@@ -78,12 +88,24 @@ export default function RunWizard() {
     setForm((f) => ({ ...f, analysis_date: t }));
   }, []);
 
+  // In hosted mode, auto-select first provider when providers load
+  useEffect(() => {
+    if (HOSTED && providers.length > 0 && !form.llm_provider) {
+      const p = providers[0];
+      setForm((f) => ({
+        ...f,
+        llm_provider:   p.key,
+        quick_think_llm: p.quick_models[0]?.value ?? "",
+        deep_think_llm:  p.deep_models[0]?.value  ?? "",
+      }));
+    }
+  }, [providers, form.llm_provider]);
+
   const set = (k: keyof FormState, v: unknown) =>
     setForm((f) => ({ ...f, [k as string]: v }));
 
   const selectedProvider = providers.find((p) => p.key === form.llm_provider);
 
-  // Auto-fill first models when provider changes
   const handleProviderSelect = (key: string) => {
     const p = providers.find((pr) => pr.key === key);
     set("llm_provider", key);
@@ -96,6 +118,7 @@ export default function RunWizard() {
   async function handleSubmit() {
     setSubmitting(true);
     setError("");
+    setNoCredits(false);
     try {
       const run = await createRun({
         ticker: form.ticker.toUpperCase(),
@@ -112,27 +135,51 @@ export default function RunWizard() {
       });
       router.push(`/run/${run.id}`);
     } catch (e: unknown) {
-      setError(String(e));
+      const msg = String(e);
+      if (msg.includes("no_credits")) {
+        setNoCredits(true);
+      } else {
+        setError(msg);
+      }
       setSubmitting(false);
     }
   }
 
-  const STEPS = [
-    "Ticker & Date",
-    "Analysts",
-    "Depth & Language",
-    "Provider",
-    "Models",
-    "Review",
-  ];
+  // Map wizard step index to logical step (hosted skips provider=3, models=4)
+  function getLogicalStep(s: number): number {
+    if (!HOSTED) return s;
+    // Hosted: 0→0, 1→1, 2→2, 3→5 (review)
+    return s < 3 ? s : 5;
+  }
+
+  const logicalStep = getLogicalStep(step);
 
   const canNext = () => {
-    if (step === 0) return form.ticker.trim().length > 0 && form.analysis_date.length === 10;
-    if (step === 1) return form.analysts.length > 0;
-    if (step === 3) return form.llm_provider.length > 0;
-    if (step === 4) return form.quick_think_llm.length > 0 && form.deep_think_llm.length > 0;
+    if (logicalStep === 0) return form.ticker.trim().length > 0 && form.analysis_date.length === 10;
+    if (logicalStep === 1) return form.analysts.length > 0;
+    if (logicalStep === 3) return form.llm_provider.length > 0;
+    if (logicalStep === 4) return form.quick_think_llm.length > 0 && form.deep_think_llm.length > 0;
     return true;
   };
+
+  const reviewRows = HOSTED
+    ? [
+        ["Ticker",   form.ticker],
+        ["Date",     form.analysis_date],
+        ["Analysts", form.analysts.join(", ")],
+        ["Depth",    `${form.research_depth} round${form.research_depth > 1 ? "s" : ""}`],
+        ["Language", form.output_language],
+      ]
+    : [
+        ["Ticker",      form.ticker],
+        ["Date",        form.analysis_date],
+        ["Analysts",    form.analysts.join(", ")],
+        ["Depth",       `${form.research_depth} round${form.research_depth > 1 ? "s" : ""}`],
+        ["Language",    form.output_language],
+        ["Provider",    selectedProvider?.display ?? form.llm_provider],
+        ["Quick Model", form.quick_think_llm],
+        ["Deep Model",  form.deep_think_llm],
+      ];
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -158,7 +205,7 @@ export default function RunWizard() {
       <h2 className="text-lg font-semibold text-white mb-6">Step {step + 1}: {STEPS[step]}</h2>
 
       {/* Step 0: Ticker + Date */}
-      {step === 0 && (
+      {logicalStep === 0 && (
         <div className="space-y-4">
           <div>
             <label className="block text-sm text-gray-400 mb-1">Ticker Symbol</label>
@@ -184,7 +231,7 @@ export default function RunWizard() {
       )}
 
       {/* Step 1: Analysts */}
-      {step === 1 && (
+      {logicalStep === 1 && (
         <div className="space-y-2">
           {ANALYSTS.map(({ key, label, desc }) => {
             const checked = form.analysts.includes(key);
@@ -216,7 +263,7 @@ export default function RunWizard() {
       )}
 
       {/* Step 2: Depth + Language */}
-      {step === 2 && (
+      {logicalStep === 2 && (
         <div className="space-y-6">
           <div>
             <p className="text-sm text-gray-400 mb-2">Research Depth</p>
@@ -256,8 +303,8 @@ export default function RunWizard() {
         </div>
       )}
 
-      {/* Step 3: Provider */}
-      {step === 3 && (
+      {/* Step 3 (non-hosted): Provider */}
+      {logicalStep === 3 && (
         <div className="grid grid-cols-2 gap-2">
           {providers.map((p) => (
             <button
@@ -273,8 +320,8 @@ export default function RunWizard() {
         </div>
       )}
 
-      {/* Step 4: Models + thinking config */}
-      {step === 4 && selectedProvider && (
+      {/* Step 4 (non-hosted): Models + thinking config */}
+      {logicalStep === 4 && selectedProvider && (
         <div className="space-y-5">
           <div>
             <label className="block text-sm text-gray-400 mb-1">Quick-Thinking Model (analysts, researchers)</label>
@@ -300,8 +347,6 @@ export default function RunWizard() {
               ))}
             </select>
           </div>
-
-          {/* Provider-specific thinking config */}
           {selectedProvider.thinking_config === "reasoning_effort" && (
             <div>
               <label className="block text-sm text-gray-400 mb-1">Reasoning Effort</label>
@@ -341,24 +386,25 @@ export default function RunWizard() {
         </div>
       )}
 
-      {/* Step 5: Review */}
-      {step === 5 && (
+      {/* Review step (step 5 full / step 3 hosted) */}
+      {logicalStep === 5 && (
         <div className="bg-gray-900 rounded-lg border border-gray-800 p-4 space-y-3 text-sm">
-          {[
-            ["Ticker",      form.ticker],
-            ["Date",        form.analysis_date],
-            ["Analysts",    form.analysts.join(", ")],
-            ["Depth",       `${form.research_depth} round${form.research_depth > 1 ? "s" : ""}`],
-            ["Language",    form.output_language],
-            ["Provider",    selectedProvider?.display ?? form.llm_provider],
-            ["Quick Model", form.quick_think_llm],
-            ["Deep Model",  form.deep_think_llm],
-          ].map(([k, v]) => (
+          {reviewRows.map(([k, v]) => (
             <div key={k} className="flex justify-between">
               <span className="text-gray-500">{k}</span>
               <span className="text-white font-mono text-right ml-4">{v}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* No-credits banner */}
+      {noCredits && (
+        <div className="mt-4 bg-amber-900/30 border border-amber-700 rounded p-3 text-sm text-amber-300 flex items-center justify-between">
+          <span>You&apos;re out of credits.</span>
+          <Link href="/billing" className="text-amber-200 font-semibold hover:underline">
+            Buy more →
+          </Link>
         </div>
       )}
 

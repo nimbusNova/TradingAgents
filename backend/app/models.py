@@ -40,6 +40,7 @@ class RunListItem(BaseModel):
     llm_provider: str
     created_at: str
     finished_at: Optional[str] = None
+    cache_hit: bool = False
 
 
 class MemoryEntry(BaseModel):
