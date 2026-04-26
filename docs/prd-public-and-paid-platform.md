@@ -122,6 +122,8 @@ Supabase Auth replaces all custom JWT code. It handles sign-up, login, Google OA
 - Email + password
 - **Sign in with Google** (Google OAuth via Supabase — enable in Supabase dashboard → Auth → Providers → Google)
 
+Supabase also supports Magic Link, Phone/SMS OTP, GitHub, Apple, Facebook, Twitter/X, Discord, LinkedIn, Azure, Slack, and more — any can be toggled on later with no code changes.
+
 **Session flow:**
 1. User signs up or continues with Google
 2. Supabase sets a secure httpOnly cookie with the session JWT
@@ -129,21 +131,35 @@ Supabase Auth replaces all custom JWT code. It handles sign-up, login, Google OA
 4. Server components read the session via `createServerClient` from `@supabase/ssr`
 5. The FastAPI backend on Render verifies the Supabase JWT using `SUPABASE_JWT_SECRET` — no separate auth system needed
 
-**On first sign-up:** A Supabase Auth hook (or Postgres trigger on `auth.users`) inserts 1 free credit:
+**Free credit abuse prevention:**
+
+Multi-accounting (creating throwaway accounts to farm free credits) is the main risk. Three layered defenses — in order of implementation priority:
+
+1. **Grant credit after email verification, not on account creation.** The Postgres trigger fires on `email_confirmed_at` becoming non-null, not on `auth.users INSERT`. Google OAuth users are pre-verified by Google so they receive the credit immediately. Email/password users only receive it after clicking the confirmation link. This alone eliminates most throwaway email abuse.
+
+2. **Supabase built-in captcha on email sign-up.** Supabase natively supports hCaptcha and Cloudflare Turnstile — one dashboard toggle, no code changes. Blocks automated account creation.
+
+3. **Block disposable email domains.** Check the sign-up email against a maintained list of throwaway domains (e.g. `disposable-email-domains` npm package). Reject known domains before account creation in a Supabase Edge Function or sign-up route.
+
+Phone/SMS verification is intentionally skipped in v1 — it adds too much friction for a $1.80 credit. Revisit if abuse is observed at scale.
+
+**On first verified sign-up:** Postgres trigger grants 1 credit:
 
 ```sql
--- Postgres function triggered after auth.users INSERT
+-- Fires when email_confirmed_at is set (covers both email verification and Google OAuth)
 CREATE OR REPLACE FUNCTION grant_signup_credit()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-  INSERT INTO public.credits (user_id, delta, reason)
-  VALUES (NEW.id, 1, 'signup_bonus');
+  IF OLD.email_confirmed_at IS NULL AND NEW.email_confirmed_at IS NOT NULL THEN
+    INSERT INTO public.credits (user_id, delta, reason)
+    VALUES (NEW.id, 1, 'signup_bonus');
+  END IF;
   RETURN NEW;
 END;
 $$;
 
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
+CREATE TRIGGER on_email_confirmed
+  AFTER UPDATE ON auth.users
   FOR EACH ROW EXECUTE FUNCTION grant_signup_credit();
 ```
 
@@ -395,19 +411,19 @@ HOSTED_DEEP_MODEL=gpt-5.4
 
 The browser opens an SSE `EventSource` directly to Render (bypassing the Vercel proxy). Render's FastAPI must allow the Vercel origin.
 
-**Problem:** Vercel preview deployments have dynamic URLs like `https://tradingagents-abc123-nimbusnova.vercel.app`, so a single static `ALLOWED_ORIGINS` value won't cover them.
+**No wildcards — both environments use fixed origins.**
 
-**Solution:** Two Render environments (dev + prod) with different `ALLOWED_ORIGINS`:
+Vercel assigns a stable alias to each branch. Set `dev` branch → `https://tradingagents-dev.vercel.app` in Vercel project settings. Then Render just has two explicit allowed origins:
 
 ```bash
 # Render dev service
-ALLOWED_ORIGINS=https://*.vercel.app
+ALLOWED_ORIGINS=https://tradingagents-dev.vercel.app
 
 # Render prod service
-ALLOWED_ORIGINS=https://your-app.vercel.app
+ALLOWED_ORIGINS=https://YOUR_PROD_DOMAIN  # fill in once domain is chosen
 ```
 
-FastAPI `CORSMiddleware` supports wildcard patterns when `allow_origin_regex` is used:
+FastAPI config:
 
 ```python
 from fastapi.middleware.cors import CORSMiddleware
@@ -415,19 +431,19 @@ import os
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=os.environ.get("ALLOWED_ORIGIN_REGEX", r"https://.*\.vercel\.app"),
+    allow_origins=os.environ.get("ALLOWED_ORIGINS", "").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 ```
 
-| Environment | `ALLOWED_ORIGIN_REGEX` |
-|-------------|------------------------|
-| Dev (Render) | `https://.*\.vercel\.app` — allows all Vercel preview URLs |
-| Prod (Render) | `https://your-app\.vercel\.app` — locked to production only |
+| Environment | `ALLOWED_ORIGINS` |
+|-------------|-------------------|
+| Render dev | `https://tradingagents-dev.vercel.app` |
+| Render prod | `https://YOUR_PROD_DOMAIN` (update when domain is chosen) |
 
-**Vercel branch → Render dev mapping:** Create a `dev` branch in the repo. Vercel auto-deploys it at a stable alias like `https://tradingagents-dev.vercel.app`. Set `NEXT_PUBLIC_API_URL` on that Vercel branch to the Render dev service URL. This gives a stable dev URL without the wildcard CORS needed long-term.
+This is strictly more secure than a wildcard — no other Vercel project can make credentialed SSE requests to your Render backend.
 
 ---
 
@@ -452,7 +468,8 @@ app.add_middleware(
 | 4 | Auth methods (v1) | **Email + password** and **Sign in with Google**. Supabase also supports Magic Link, Phone/OTP, GitHub, Apple, Facebook, Twitter/X, Discord, LinkedIn, Azure, Slack, and more — all toggle-on with no code changes. |
 | 5 | Report cache scope | **Global** — any `done` run for the same ticker created this ISO week is reused across all users |
 | 6 | Force-refresh mid-week | Not in v1; add a "Refresh report (1 credit)" option in a future release |
-| 7 | SSE CORS | Dev: wildcard `https://*.vercel.app`; Prod: locked to production domain |
+| 7 | SSE CORS | No wildcards. Dev: `https://tradingagents-dev.vercel.app`; Prod: TBD once domain is chosen |
+| 8 | Free credit abuse | Captcha on email sign-up + credit granted after email verification (not on account creation) + disposable domain blocklist |
 
 ---
 
