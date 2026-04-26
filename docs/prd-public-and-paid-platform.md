@@ -391,27 +391,68 @@ HOSTED_DEEP_MODEL=gpt-5.4
 
 ---
 
-### 4.11 Deployment steps
+### 4.11 CORS configuration (Render ↔ Vercel)
 
-1. **Supabase:** Create project → run schema migrations → enable Google OAuth provider → verify signup credit trigger
-2. **Render:** New Web Service → connect repo → root directory `backend/` → add env vars → deploy
-3. **Vercel:** New project → connect repo → root directory `frontend/` → add env vars → deploy
-4. **Google OAuth:** Create OAuth 2.0 credentials in Google Cloud Console → add Client ID + Secret in Supabase Auth → add Render domain to allowed CORS origins
-5. **Stripe:** Create products + prices → copy Price IDs to Vercel env → configure webhook to `https://your-app.vercel.app/api/billing/webhook`
-6. **CORS on Render:** Add `ALLOWED_ORIGINS=https://your-app.vercel.app` so SSE EventSource connects from the browser
+The browser opens an SSE `EventSource` directly to Render (bypassing the Vercel proxy). Render's FastAPI must allow the Vercel origin.
+
+**Problem:** Vercel preview deployments have dynamic URLs like `https://tradingagents-abc123-nimbusnova.vercel.app`, so a single static `ALLOWED_ORIGINS` value won't cover them.
+
+**Solution:** Two Render environments (dev + prod) with different `ALLOWED_ORIGINS`:
+
+```bash
+# Render dev service
+ALLOWED_ORIGINS=https://*.vercel.app
+
+# Render prod service
+ALLOWED_ORIGINS=https://your-app.vercel.app
+```
+
+FastAPI `CORSMiddleware` supports wildcard patterns when `allow_origin_regex` is used:
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+import os
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=os.environ.get("ALLOWED_ORIGIN_REGEX", r"https://.*\.vercel\.app"),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+| Environment | `ALLOWED_ORIGIN_REGEX` |
+|-------------|------------------------|
+| Dev (Render) | `https://.*\.vercel\.app` — allows all Vercel preview URLs |
+| Prod (Render) | `https://your-app\.vercel\.app` — locked to production only |
+
+**Vercel branch → Render dev mapping:** Create a `dev` branch in the repo. Vercel auto-deploys it at a stable alias like `https://tradingagents-dev.vercel.app`. Set `NEXT_PUBLIC_API_URL` on that Vercel branch to the Render dev service URL. This gives a stable dev URL without the wildcard CORS needed long-term.
 
 ---
 
-## 5. Open Questions
+### 4.12 Deployment steps
+
+1. **Supabase:** Create project → run schema migrations → enable RLS policies → enable Google OAuth (add Client ID + Secret from Google Cloud Console) → verify signup credit trigger
+2. **Render (dev):** New Web Service → connect repo → root dir `backend/` → add dev env vars (including `ALLOWED_ORIGIN_REGEX=https://.*\.vercel\.app`) → deploy
+3. **Render (prod):** Duplicate service → swap to prod env vars (locked CORS origin) → deploy
+4. **Vercel:** New project → connect repo → root dir `frontend/` → add env vars → `dev` branch points to Render dev; `main` branch points to Render prod
+5. **Stripe:** Create products + prices → copy Price IDs to Vercel prod env → configure webhook to `https://your-app.vercel.app/api/billing/webhook`
+6. **Google OAuth:** Add Vercel prod URL + Render dev URL to Google Cloud Console → Authorised JavaScript origins
+
+---
+
+## 5. Decisions locked
 
 | # | Question | Decision |
 |---|----------|----------|
-| 1 | Do credits expire? | No expiry in v1 |
-| 2 | Refund for failed runs? | Credit not deducted on `error` — no refund needed |
-| 3 | Free trial credits | **1 credit on sign-up** — confirmed |
-| 4 | Google OAuth | **Enabled** — Supabase handles it natively |
-| 5 | Cache scope per user or global? | Global — any done run for the same ticker this week is reused |
-| 6 | What if user wants fresh data mid-week? | Not supported in v1; can revisit with a "force refresh" option that costs 1 credit |
+| 1 | Credits expire? | **No** |
+| 2 | Refund for failed/errored runs? | **No refund needed** — credit not deducted on `error` status |
+| 3 | Free trial | **1 credit on sign-up** via Postgres trigger on `auth.users` |
+| 4 | Auth methods (v1) | **Email + password** and **Sign in with Google**. Supabase also supports Magic Link, Phone/OTP, GitHub, Apple, Facebook, Twitter/X, Discord, LinkedIn, Azure, Slack, and more — all toggle-on with no code changes. |
+| 5 | Report cache scope | **Global** — any `done` run for the same ticker created this ISO week is reused across all users |
+| 6 | Force-refresh mid-week | Not in v1; add a "Refresh report (1 credit)" option in a future release |
+| 7 | SSE CORS | Dev: wildcard `https://*.vercel.app`; Prod: locked to production domain |
 
 ---
 
