@@ -22,6 +22,8 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
       initialSections={run.sections ?? {}}
       initialDecision={run.decision}
       initialStatus={run.status}
+      createdAt={run.created_at}
+      finishedAt={run.finished_at}
     />
   );
 }

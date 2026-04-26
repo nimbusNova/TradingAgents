@@ -17,16 +17,22 @@ const ALL_AGENTS = [
   "Portfolio Manager",
 ];
 
-function initStatuses(analysts: string[]): Record<string, AgentStatus> {
+const REPORT_SECTION_KEYS = [
+  "market_report","sentiment_report","news_report","fundamentals_report",
+  "investment_plan","trader_investment_plan","final_trade_decision",
+];
+
+function initStatuses(analysts: string[], alreadyDone: boolean): Record<string, AgentStatus> {
   const analystMap: Record<string, string> = {
     market: "Market Analyst", social: "Social Analyst",
     news: "News Analyst", fundamentals: "Fundamentals Analyst",
   };
+  const s: AgentStatus = alreadyDone ? "completed" : "pending";
   const statuses: Record<string, AgentStatus> = {};
-  analysts.forEach((a) => { if (analystMap[a]) statuses[analystMap[a]] = "pending"; });
+  analysts.forEach((a) => { if (analystMap[a]) statuses[analystMap[a]] = s; });
   ["Bull Researcher","Bear Researcher","Research Manager","Trader",
    "Aggressive Analyst","Conservative Analyst","Neutral Analyst","Portfolio Manager"]
-    .forEach((a) => { statuses[a] = "pending"; });
+    .forEach((a) => { statuses[a] = s; });
   return statuses;
 }
 
@@ -38,6 +44,8 @@ export default function LiveAnalysisView({
   initialSections,
   initialDecision,
   initialStatus,
+  createdAt,
+  finishedAt,
 }: {
   runId: string;
   ticker: string;
@@ -46,18 +54,22 @@ export default function LiveAnalysisView({
   initialSections: Record<string, string>;
   initialDecision: string | null;
   initialStatus: string;
+  createdAt: string;
+  finishedAt: string | null;
 }) {
+  const alreadyDone = initialStatus === "done" || initialStatus === "error";
   const [statuses, setStatuses] = useState<Record<string, AgentStatus>>(
-    () => initStatuses(analysts)
+    () => initStatuses(analysts, alreadyDone)
   );
   const [events, setEvents]       = useState<SseEvent[]>([]);
   const [sections, setSections]   = useState<Record<string, string>>(initialSections);
   const [decision, setDecision]   = useState<string | null>(initialDecision);
-  const [isDone, setIsDone]       = useState(
-    initialStatus === "done" || initialStatus === "error"
-  );
+  const [isDone, setIsDone]       = useState(alreadyDone);
   const [error, setError]         = useState<string | null>(null);
-  const [elapsed, setElapsed]     = useState(0);
+  const initialElapsed = alreadyDone && finishedAt
+    ? Math.round((new Date(finishedAt).getTime() - new Date(createdAt).getTime()) / 1000)
+    : 0;
+  const [elapsed, setElapsed]     = useState(initialElapsed);
   const startRef = useRef(Date.now());
   const esRef    = useRef<EventSource | null>(null);
 
@@ -105,8 +117,8 @@ export default function LiveAnalysisView({
   const completedAgents = Object.values(statuses).filter((s) => s === "completed").length;
   const totalAgents     = Object.keys(statuses).length;
   const toolCallCount   = events.filter((e) => e.type === "tool_call").length;
-  const sectionsReady   = Object.values(sections).filter(Boolean).length;
-  const TOTAL_SECTIONS  = 7; // 4 analyst + investment_plan + trader_plan + final_decision
+  const sectionsReady   = REPORT_SECTION_KEYS.filter((k) => sections[k]).length;
+  const TOTAL_SECTIONS  = REPORT_SECTION_KEYS.length;
 
   return (
     <div className="space-y-4">

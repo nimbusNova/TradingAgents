@@ -1,4 +1,3 @@
-"use client";
 import Link from "next/link";
 import type { RunListItem } from "@/lib/types";
 import FinalDecisionBadge from "./FinalDecisionBadge";
@@ -63,7 +62,7 @@ export default function RunHistory({ runs }: { runs: RunListItem[] }) {
                   {run.status}
                 </span>
               </td>
-              <td className="px-4 py-3 text-gray-500">{timeAgo(run.created_at)}</td>
+              <td className="px-4 py-3 text-gray-500" suppressHydrationWarning>{timeAgo(run.created_at)}</td>
             </tr>
           ))}
         </tbody>

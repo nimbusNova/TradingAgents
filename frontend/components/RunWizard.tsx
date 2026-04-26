@@ -56,9 +56,10 @@ export default function RunWizard() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]         = useState("");
+  const [maxDate, setMaxDate]     = useState("");
   const [form, setForm]           = useState<FormState>({
     ticker: "",
-    analysis_date: today(),
+    analysis_date: "",
     analysts: ["market", "social", "news", "fundamentals"],
     research_depth: 1,
     output_language: "English",
@@ -72,6 +73,9 @@ export default function RunWizard() {
 
   useEffect(() => {
     listProviders().then(setProviders).catch(() => {});
+    const t = today();
+    setMaxDate(t);
+    setForm((f) => ({ ...f, analysis_date: t }));
   }, []);
 
   const set = (k: keyof FormState, v: unknown) =>
@@ -171,7 +175,7 @@ export default function RunWizard() {
             <input
               type="date"
               value={form.analysis_date}
-              max={today()}
+              max={maxDate}
               onChange={(e) => set("analysis_date", e.target.value)}
               className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white focus:outline-none focus:border-green-500"
             />
