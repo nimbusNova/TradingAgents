@@ -11,7 +11,11 @@
 TradingAgents is a multi-agent LLM trading analysis system. This PRD covers two parallel efforts:
 
 1. **Open-Source Release** — publish the repo publicly with no secrets exposed, so developers can self-host with their own API keys.
-2. **Paid Hosted Platform** — a cloud-hosted version of the same product where users buy report credits and run analyses without any setup. This is the primary revenue model.
+2. **Paid Hosted Platform** — a cloud-hosted version where users buy report credits and run analyses without any setup. This is the primary revenue model.
+
+**Hosting stack:** Vercel (Next.js frontend) + Railway (FastAPI backend) + Supabase (Postgres + Auth).
+
+> **Why not 100% Vercel?** Vercel serverless functions have a max 300-second timeout (Pro tier). A single TradingAgents analysis runs for 3–8 minutes, uses an in-process asyncio queue, and streams SSE responses — none of which fit the serverless model. Vercel handles the frontend perfectly; Railway handles the long-running Python process. Supabase replaces both the SQLite database and all custom auth code.
 
 ---
 
@@ -19,7 +23,7 @@ TradingAgents is a multi-agent LLM trading analysis system. This PRD covers two 
 
 | Goal | Success metric |
 |------|----------------|
-| Repo is safe to make public | `git log --all -- .env` returns nothing; no real keys in history |
+| Repo is safe to make public | `git log --all -S "sk-" --oneline` returns nothing |
 | Developers can self-host in < 15 min | README walk-through tested end to end |
 | Users can purchase and consume credits | Stripe test-mode checkout → credits appear → run completes → credit deducted |
 | Revenue from hosted reports | First paying customer within 30 days of launch |
@@ -32,28 +36,28 @@ TradingAgents is a multi-agent LLM trading analysis system. This PRD covers two 
 
 | Item | Current state | Action |
 |------|---------------|--------|
-| `.env` | Gitignored ✓ | Verify with `git ls-files .env` — confirm not tracked |
-| `.env.example` | Has empty values ✓ | No action needed |
+| `.env` | Gitignored ✓ | Confirm with `git ls-files .env` — must return nothing |
+| `.env.example` | Tracked, empty values ✓ | No action needed |
 | `.env.enterprise.example` | Tracked, empty values ✓ | No action needed |
-| LLM clients (`openai_client.py` etc.) | Read keys from `os.environ` ✓ | No action needed |
-| `web.db` | At `~/.tradingagents/` (outside repo) ✓ | No action needed |
-| Git history | Unknown | Run `git log --all -S "sk-" --oneline` to confirm no keys were ever committed |
+| LLM clients | Read keys from `os.environ` ✓ | No action needed |
+| `web.db` | Stored at `~/.tradingagents/` (outside repo) ✓ | No action needed |
+| Git history | Unknown | Run `git log --all -S "sk-" --oneline` — if anything appears, use `git filter-repo` to scrub before going public |
 
 ### 3.2 Files to add before going public
 
-**`README.md`** (root-level, new file) — covers:
-- What it is and a screenshot
-- Quick-start (clone → copy `.env.example` → fill in one API key → `./start.sh`)
-- Docker Compose path for production
-- Link to the hosted version (paid) for users who don't want to self-host
+**`README.md`** (root-level) — covers:
+- What it is + screenshot
+- Quick-start: clone → `cp .env.example .env` → fill in one API key → `./start.sh`
+- Docker Compose path for production self-hosting
+- Link to the hosted platform for users who don't want to self-host
 
-**`LICENSE`** — MIT license (allows free self-hosting, does not restrict commercial use of the hosted platform).
+**`LICENSE`** — MIT. Allows free self-hosting; does not restrict the commercial hosted platform.
 
-**`.env.example`** — already exists; add a `FINNHUB_API_KEY=` line if it is used and not yet listed, plus a `# Data providers` comment block to group non-LLM keys separately.
+**`.env.example`** — already exists; verify all required env vars are listed (add `FINNHUB_API_KEY=` if missing).
 
-### 3.3 What the open-source version does NOT include
+### 3.3 Scope of the open-source version
 
-The open-source repo is the full analysis engine. Users bring their own API keys and run it themselves. There is no credit system, no auth, no payment in the open-source version — those live only in the hosted platform.
+The open-source repo is the full analysis engine. Users bring their own LLM API keys and run it themselves. There is no credit system, no auth, and no payment — those exist only in the hosted platform.
 
 ---
 
@@ -69,120 +73,233 @@ Users purchase **credit packs**. Each completed analysis costs **1 credit**.
 | Value — 10 credits | $15 | $1.50 |
 | Pro — 25 credits | $29 | $1.16 |
 
-**LLM cost note:** A single analysis using `gpt-5.4-mini` (quick) + `gpt-5.4` (deep) at depth=1 costs roughly $0.30–0.60 in API fees. The host absorbs this cost; users do not supply their own keys on the hosted platform.
+**LLM cost note:** One analysis at depth=1 using `gpt-5.4-mini` (quick) + `gpt-5.4` (deep) costs roughly $0.30–0.60 in API fees. The host absorbs this; users do not supply their own keys on the hosted platform.
 
-Credits are consumed only when a run reaches `status=done`. Failed or errored runs do not deduct credits.
+Credits are consumed only when a run reaches `status=done`. Failed or errored runs do **not** deduct a credit.
 
-### 4.2 User-facing features
+---
 
-#### 4.2.1 Authentication
-- Email + password sign-up / login (no OAuth required for v1)
-- JWT session stored in an httpOnly cookie
-- Password reset via email
+### 4.2 Infrastructure stack
 
-#### 4.2.2 Credits dashboard
-- Visible credit balance in the nav bar (e.g. `⚡ 7 credits`)
-- "Buy more" button links to Stripe Checkout
-- Credit history table: date · pack bought or credit spent · run ticker
-
-#### 4.2.3 Run gate
-- Before creating a run: API checks the user has ≥ 1 credit
-- If 0 credits: return `402 Payment Required` with a redirect URL to the buy page
-- Frontend shows a banner: "You're out of credits — [Buy more →]"
-- Credit deducted atomically when run status transitions to `done`
-
-#### 4.2.4 Hosted model config
-- The "Provider" and "Models" wizard steps are hidden on the hosted platform
-- All runs use the host-configured model (e.g. `gpt-5.4-mini` / `gpt-5.4`, OpenAI)
-- Users still choose: ticker, date, analysts, depth, language
-- This keeps UX simple and cost predictable
-
-### 4.3 Backend changes
-
-#### New tables (SQLite → Postgres for hosted)
-
-```sql
-users (
-  id          TEXT PRIMARY KEY,
-  email       TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  created_at  TIMESTAMP DEFAULT now()
-)
-
-credits (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT REFERENCES users(id),
-  delta       INTEGER NOT NULL,   -- +10 for purchase, -1 for run
-  reason      TEXT,               -- 'purchase:stripe_session_xyz' | 'run:run_id'
-  created_at  TIMESTAMP DEFAULT now()
-)
+```
+Browser
+  │
+  ├─── HTTPS ──► Vercel  (Next.js 15 App Router)
+  │                │
+  │                ├── next.config.ts rewrites /api/* ──► Railway (FastAPI)
+  │                │                                          │
+  │                └── Vercel API routes /api/billing/*       │
+  │                         │                                 │
+  └─── SSE direct ──────────┼────────────────────────────────┘
+                             │
+                        Supabase
+                    (Postgres + Auth + RLS)
 ```
 
-Credit balance = `SELECT SUM(delta) FROM credits WHERE user_id = ?`
+**Vercel** — serves the Next.js frontend. Simple API routes (`/api/billing/*`) run as Vercel serverless functions because they are short-lived (< 10 seconds).
 
-#### New API endpoints
+**Railway** — runs the FastAPI backend as a persistent process. Handles the analysis queue, LLM calls, and SSE streaming. No timeout constraint. Receives `BACKEND_URL` in Vercel's environment so `next.config.ts` rewrites point to it.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/auth/register` | Create account |
-| `POST` | `/api/auth/login` | Return JWT |
-| `POST` | `/api/auth/logout` | Clear cookie |
-| `GET`  | `/api/me/credits` | Current balance + recent history |
-| `POST` | `/api/billing/checkout` | Create Stripe Checkout session, return URL |
-| `POST` | `/api/billing/webhook` | Stripe webhook — fulfill credits on payment |
+**SSE note:** The browser connects to the SSE stream **directly via Railway** (`NEXT_PUBLIC_API_URL/api/runs/{id}/stream`), bypassing the Vercel proxy. This avoids Vercel's streaming proxy timeout. All other API calls go through the Vercel rewrite as today.
+
+**Supabase** — managed Postgres, Auth (email/password + OAuth), and Row Level Security. Replaces both `web.db` (SQLite) and all custom auth code.
+
+---
+
+### 4.3 Authentication — Supabase Auth
+
+Supabase Auth replaces all custom JWT code. It handles sign-up, login, password reset, and session cookies out of the box.
+
+**Packages:**
+- `@supabase/supabase-js` — Supabase client
+- `@supabase/ssr` — Next.js App Router helpers (server components + middleware)
+
+**Session flow:**
+1. User signs up / logs in via Supabase Auth (email + password in v1)
+2. Supabase sets a secure httpOnly cookie containing the session JWT
+3. Next.js `middleware.ts` calls `supabase.auth.getUser()` on every request — redirects to `/login` if unauthenticated on protected routes
+4. Server components read the session via `createServerClient` from `@supabase/ssr`
+5. The FastAPI backend verifies the Supabase JWT using `SUPABASE_JWT_SECRET` — no separate auth system needed
+
+**New pages:**
+- `app/(auth)/login/page.tsx` — Supabase Auth UI or a simple form calling `supabase.auth.signInWithPassword()`
+- `app/(auth)/register/page.tsx` — `supabase.auth.signUp()`
+- Password reset is handled by Supabase's built-in email flow; no custom code needed
+
+---
+
+### 4.4 Database — Supabase Postgres
+
+**Connection:**
+- Next.js server components and Vercel API routes use `@supabase/supabase-js` with the **anon key** (RLS enforced) or **service role key** (bypasses RLS, for billing webhook only)
+- FastAPI on Railway connects via `DATABASE_URL` (Supabase connection pooler URL, `pgbouncer` mode) using `asyncpg` / `aiosqlite` → `asyncpg`
+
+#### Schema additions
+
+```sql
+-- Add user ownership to existing runs table
+ALTER TABLE runs ADD COLUMN user_id UUID REFERENCES auth.users(id);
+
+-- Credits ledger: one row per purchase (+N) or run deduction (-1)
+CREATE TABLE credits (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL REFERENCES auth.users(id),
+  delta      INTEGER NOT NULL,   -- +10 for purchase, -1 for run completion
+  reason     TEXT,               -- 'purchase:cs_stripe_xxx' | 'run:run-uuid'
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+#### Row Level Security policies
+
+```sql
+-- Users see and create only their own runs
+ALTER TABLE runs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "own runs" ON runs
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- Users see only their own credits
+ALTER TABLE credits ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "own credits" ON credits
+  FOR SELECT USING (auth.uid() = user_id);
+-- Inserts are server-only (service role); no client insert policy needed
+```
+
+Credit balance query:
+```sql
+SELECT COALESCE(SUM(delta), 0) AS balance
+FROM credits WHERE user_id = $1;
+```
+
+---
+
+### 4.5 Backend changes (FastAPI on Railway)
 
 #### Modified endpoints
 
-- `POST /api/runs` — require auth header; check balance ≥ 1 before queuing
-- Run completion hook in `run_queue.py` — insert `delta=-1` credit row when status → `done`
+| Endpoint | Change |
+|----------|--------|
+| `POST /api/runs` | Verify Supabase JWT from `Authorization: Bearer <token>` header; check credit balance ≥ 1 via Supabase; attach `user_id` to run row |
+| `GET /api/runs` | Filter by `user_id` from JWT |
+| `GET /api/runs/{id}` | Return 403 if `run.user_id ≠ JWT user_id` |
 
-### 4.4 Frontend changes
+#### Run completion → credit deduction
 
-| Component | Change |
-|-----------|--------|
-| `Navigation.tsx` | Add credit balance chip + "Buy" link when logged in; Login/Sign-up links when logged out |
-| `RunWizard.tsx` | On hosted platform, skip Provider + Models steps; use server-configured defaults |
-| `app/login/page.tsx` | New — email/password login form |
-| `app/register/page.tsx` | New — sign-up form |
-| `app/billing/page.tsx` | New — credit packs grid + Stripe Checkout redirect |
-| `middleware.ts` | Protect `/run/new` and `/run/[id]` routes; redirect to login if unauthenticated |
+In `run_queue.py`, when a run transitions to `done`:
 
-### 4.5 Payment flow (Stripe)
+```python
+await supabase_admin.table("credits").insert({
+    "user_id": run.user_id,
+    "delta": -1,
+    "reason": f"run:{run.id}",
+}).execute()
+```
+
+Uses the **service role key** (set as `SUPABASE_SERVICE_ROLE_KEY` env var on Railway) so RLS is bypassed for this server-side write.
+
+#### New dependency
+
+```
+# backend/requirements.txt additions
+supabase==2.x          # supabase-py client
+asyncpg==0.x           # async Postgres driver replacing aiosqlite
+```
+
+---
+
+### 4.6 Frontend changes (Vercel)
+
+| File | Change |
+|------|--------|
+| `middleware.ts` | New — use `@supabase/ssr` to check session; redirect `/run/*` and `/run/new` to `/login` if unauthenticated |
+| `Navigation.tsx` | Add credit balance chip (fetched from Supabase) + "Buy" link; Login/Register links when logged out |
+| `RunWizard.tsx` | When `HOSTED_MODE=true`, skip Provider + Models steps; pass `Authorization: Bearer <token>` on run creation |
+| `app/(auth)/login/page.tsx` | New — Supabase sign-in form |
+| `app/(auth)/register/page.tsx` | New — Supabase sign-up form |
+| `app/billing/page.tsx` | New — credit pack grid; POST to `/api/billing/checkout`; handle `?success=1` redirect |
+| `lib/supabase.ts` | New — exports `createBrowserClient` and `createServerClient` helpers |
+
+---
+
+### 4.7 Billing — Stripe + Vercel API routes
+
+The Stripe integration lives entirely in Vercel API routes (short-lived, no queue needed).
+
+#### New Vercel API routes
+
+| Route | Handler |
+|-------|---------|
+| `app/api/billing/checkout/route.ts` | Create Stripe Checkout Session; embed `user_id` and `credits` in `metadata`; return `url` |
+| `app/api/billing/webhook/route.ts` | Verify Stripe signature; on `checkout.session.completed`, insert `delta=+N` row in Supabase `credits` table using service role key |
+
+#### Purchase flow
 
 1. User clicks "Buy 10 credits — $15"
-2. Frontend calls `POST /api/billing/checkout` → backend creates a Stripe Checkout session with `metadata: { user_id, credits: 10 }`
-3. User is redirected to Stripe-hosted checkout page
-4. On success, Stripe fires `checkout.session.completed` webhook
-5. Backend verifies signature, inserts `delta=+10` credits row
-6. User is redirected to `/billing?success=1` — balance updates immediately
+2. `POST /api/billing/checkout` → Stripe Checkout Session created → return `{ url }`
+3. Browser redirects to Stripe-hosted checkout
+4. Payment succeeds → Stripe POSTs `checkout.session.completed` to `https://your-app.vercel.app/api/billing/webhook`
+5. Vercel route verifies Stripe signature → inserts `{ user_id, delta: +10, reason: "purchase:cs_xxx" }` into Supabase
+6. User lands on `/billing?success=1` → credit balance refreshes via `supabase.from("credits").select()`
 
-### 4.6 Environment variables (hosted only)
+---
+
+### 4.8 Hosted model config
+
+On the hosted platform, the Provider and Models wizard steps are hidden. The backend uses a fixed model set configured via environment variables:
 
 ```bash
-# Hosted platform additions (not in open-source .env.example)
-DATABASE_URL=postgresql://...       # upgrade from SQLite for multi-user
-JWT_SECRET=...
+HOSTED_MODE=true
+HOSTED_QUICK_MODEL=gpt-5.4-mini
+HOSTED_DEEP_MODEL=gpt-5.4
+HOSTED_PROVIDER=openai
+```
+
+The frontend reads `NEXT_PUBLIC_HOSTED_MODE=true` and skips steps 3 and 4 of `RunWizard`. Users choose: ticker, date, analysts, depth, language.
+
+---
+
+### 4.9 Environment variables
+
+**Vercel (frontend + billing routes)**
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...          # billing webhook only — never NEXT_PUBLIC_
+BACKEND_URL=https://your-api.up.railway.app
+NEXT_PUBLIC_API_URL=https://your-api.up.railway.app  # direct SSE connection
 STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_PRICE_5=price_xxx            # Stripe Price IDs for each pack
+STRIPE_PRICE_5=price_xxx
 STRIPE_PRICE_10=price_xxx
 STRIPE_PRICE_25=price_xxx
-HOSTED_MODE=true                    # hides Provider/Models steps in UI
+NEXT_PUBLIC_HOSTED_MODE=true
 ```
 
-### 4.7 Deployment architecture (hosted)
+**Railway (FastAPI backend)**
 
-```
-Cloudflare (DNS + DDoS)
-    │
-    ▼
-VPS / Fly.io / Railway
-    ├── Next.js frontend (port 3000)
-    ├── FastAPI backend  (port 8001)
-    └── Postgres         (port 5432)
+```bash
+DATABASE_URL=postgresql://postgres.[project]:[password]@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...          # for credit deduction writes
+SUPABASE_JWT_SECRET=...                    # from Supabase dashboard → Settings → API → JWT Secret
+OPENAI_API_KEY=sk-...                      # (or whichever provider the hosted platform uses)
+HOSTED_MODE=true
+HOSTED_QUICK_MODEL=gpt-5.4-mini
+HOSTED_DEEP_MODEL=gpt-5.4
+HOSTED_PROVIDER=openai
 ```
 
-Single `docker-compose.prod.yml` with Postgres replacing SQLite. Backend connects via `DATABASE_URL`. Secrets injected as environment variables (never in repo).
+---
+
+### 4.10 Deployment steps
+
+1. **Supabase:** Create project → run schema migrations (alter `runs`, create `credits`, enable RLS, add policies)
+2. **Railway:** Connect GitHub repo → set `backend/` as root → add all Railway env vars → deploy
+3. **Vercel:** Connect GitHub repo → set `frontend/` as root → add all Vercel env vars → deploy
+4. **Stripe:** Create products + prices → copy Price IDs to Vercel env → configure webhook endpoint to `https://your-app.vercel.app/api/billing/webhook`
+5. **DNS:** Point custom domain at Vercel; add Railway domain as `NEXT_PUBLIC_API_URL` for direct SSE
 
 ---
 
@@ -190,20 +307,19 @@ Single `docker-compose.prod.yml` with Postgres replacing SQLite. Backend connect
 
 | # | Question | Default assumption |
 |---|----------|--------------------|
-| 1 | Do hosted users pick their own models, or does host fix the model? | Host fixes model (simpler, cost-controlled) |
-| 2 | Do credits expire? | No expiry in v1 |
-| 3 | Refund policy for failed runs? | Credit not deducted on `error` — no refund needed |
-| 4 | Free tier? | No free tier in v1; consider 1 free credit on sign-up for conversion |
-| 5 | Which VPS/platform to host on? | TBD by operator |
-| 6 | Migrate to Postgres or keep SQLite? | Postgres recommended for multi-user; SQLite fine for < 100 concurrent users |
+| 1 | Do credits expire? | No expiry in v1 |
+| 2 | Refund policy for failed runs? | Credit not deducted on `error` — no manual refund needed |
+| 3 | Free trial credit on sign-up? | 1 free credit on register (good for conversion) — decide before launch |
+| 4 | OAuth providers (Google, GitHub)? | Email/password only in v1; Supabase makes adding OAuth trivial later |
+| 5 | SSE direct to Railway — CORS headers needed? | Yes — Railway FastAPI must allow `https://your-app.vercel.app` origin |
 
 ---
 
 ## 6. Out of Scope (v1)
 
-- OAuth / social login
 - Subscription / monthly plans
 - API access for programmatic use
-- Team/org accounts
-- Admin dashboard (can use direct DB queries for now)
-- Email notifications when analysis completes
+- Team / org accounts
+- Admin dashboard (use Supabase Table Editor for now)
+- Email notifications when analysis completes (Supabase can add this later via triggers)
+- Mobile app
