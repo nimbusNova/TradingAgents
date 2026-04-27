@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Provider } from "@/lib/types";
 import { createRun, listProviders } from "@/lib/api";
+import { track } from "@vercel/analytics";
 
 const HOSTED = process.env.NEXT_PUBLIC_HOSTED_MODE === "true";
 
@@ -133,11 +134,19 @@ export default function RunWizard() {
         google_thinking_level: selectedProvider?.thinking_config === "thinking_level" ? form.google_thinking_level : null,
         anthropic_effort: selectedProvider?.thinking_config === "effort" ? form.anthropic_effort : null,
       });
+      track("run_submitted", {
+        ticker: form.ticker.toUpperCase(),
+        analysts: form.analysts.join(","),
+        depth: form.research_depth,
+        provider: form.llm_provider,
+        cached: run.cache_hit ?? false,
+      });
       router.push(`/run/${run.id}`);
     } catch (e: unknown) {
       const msg = String(e);
       if (msg.includes("no_credits")) {
         setNoCredits(true);
+        track("out_of_credits_shown");
       } else {
         setError(msg);
       }
@@ -426,7 +435,10 @@ export default function RunWizard() {
 
         {step < STEPS.length - 1 ? (
           <button
-            onClick={() => setStep((s) => s + 1)}
+            onClick={() => {
+              track("wizard_step_completed", { step: step + 1, step_name: STEPS[step] });
+              setStep((s) => s + 1);
+            }}
             disabled={!canNext()}
             className="px-5 py-2 rounded bg-green-700 hover:bg-green-600 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-medium"
           >

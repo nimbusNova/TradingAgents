@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase";
+import { track } from "@vercel/analytics";
 
 const PACKS = [
   { id: "5",  credits: 5,  price: "$9",  label: "Starter",  perCredit: "$1.80" },
@@ -48,6 +49,7 @@ function BillingContent() {
 
   async function handleBuy(packId: string) {
     setBuying(packId);
+    track("credits_purchase_started", { pack: packId });
     try {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",

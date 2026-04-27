@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase";
+import { track } from "@vercel/analytics";
 
 function GoogleIcon() {
   return (
@@ -32,12 +33,14 @@ export default function LoginPage() {
       setError(error.message);
       setLoading(false);
     } else {
+      track("login", { method: "email" });
       router.push("/");
       router.refresh();
     }
   }
 
   async function handleGoogle() {
+    track("login", { method: "google" });
     const supabase = getBrowserClient();
     await supabase.auth.signInWithOAuth({
       provider: "google",
