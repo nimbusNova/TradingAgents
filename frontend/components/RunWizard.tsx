@@ -21,6 +21,9 @@ const DEPTHS = [
   { value: 5, label: "Deep",     desc: "5 rounds — thorough, higher cost" },
 ];
 
+// Hosted mode is locked to medium depth
+const VISIBLE_DEPTHS = HOSTED ? DEPTHS.filter((d) => d.value === 3) : DEPTHS;
+
 const LANGUAGES = [
   "English","Chinese","Japanese","Korean","Spanish","French","German","Portuguese","Arabic","Russian",
 ];
@@ -72,7 +75,7 @@ export default function RunWizard() {
     ticker: "",
     analysis_date: "",
     analysts: ["market", "social", "news", "fundamentals"],
-    research_depth: 1,
+    research_depth: HOSTED ? 3 : 1,
     output_language: "English",
     llm_provider: "",
     quick_think_llm: "",
@@ -277,7 +280,7 @@ export default function RunWizard() {
           <div>
             <p className="text-sm text-gray-400 mb-2">Research Depth</p>
             <div className="space-y-2">
-              {DEPTHS.map(({ value, label, desc }) => (
+              {VISIBLE_DEPTHS.map(({ value, label, desc }) => (
                 <label
                   key={value}
                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${

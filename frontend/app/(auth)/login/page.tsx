@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase";
 import { track } from "@vercel/analytics";
@@ -17,7 +16,6 @@ function GoogleIcon() {
 }
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -34,8 +32,9 @@ export default function LoginPage() {
       setLoading(false);
     } else {
       track("login", { method: "email" });
-      router.push("/");
-      router.refresh();
+      // Full page navigation so the fresh auth cookie is included in the
+      // very first server request, preventing a middleware redirect race.
+      window.location.href = "/";
     }
   }
 

@@ -18,10 +18,14 @@ def get_current_user(request: Request) -> dict:
     token = auth_header[len("Bearer "):]
     import jwt  # PyJWT
 
+    jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
+    if not jwt_secret:
+        raise HTTPException(status_code=500, detail="SUPABASE_JWT_SECRET is not configured")
+
     try:
         payload = jwt.decode(
             token,
-            os.environ["SUPABASE_JWT_SECRET"],
+            jwt_secret,
             algorithms=["HS256"],
             options={"verify_aud": False},
         )
