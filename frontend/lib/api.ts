@@ -55,10 +55,13 @@ export async function getMemory(ticker?: string): Promise<MemoryEntry[]> {
   return res.json();
 }
 
-export function streamRunUrl(id: string): string {
-  const apiBase =
-    typeof window === "undefined"
-      ? `${process.env.BACKEND_URL ?? "http://localhost:8001"}/api`
-      : `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001"}/api`;
-  return `${apiBase}/runs/${id}/stream`;
+export async function streamRunUrl(id: string): Promise<string> {
+  const apiBase = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001"}/api`;
+  if (!HOSTED) return `${apiBase}/runs/${id}/stream`;
+  const { getBrowserClient } = await import("./supabase");
+  const { data: { session } } = await getBrowserClient().auth.getSession();
+  const token = session?.access_token;
+  return token
+    ? `${apiBase}/runs/${id}/stream?token=${encodeURIComponent(token)}`
+    : `${apiBase}/runs/${id}/stream`;
 }

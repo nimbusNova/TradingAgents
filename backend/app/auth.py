@@ -11,15 +11,16 @@ _supabase_url: str | None = os.environ.get("SUPABASE_URL")
 _supabase_service_key: str | None = os.environ.get("SUPABASE_SECRET_KEY")
 
 
-def get_current_user(request: Request) -> dict:
+def get_current_user(request: Request, token: str = "") -> dict:
     if not USE_ACTUAL_DB:
         return {"sub": "local-dev-user"}
 
+    # Accept token from Authorization header or query param (EventSource can't set headers)
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    if auth_header.startswith("Bearer "):
+        token = auth_header[len("Bearer "):]
+    if not token:
         raise HTTPException(status_code=401, detail="Missing bearer token")
-
-    token = auth_header[len("Bearer "):]
 
     if not _supabase_url or not _supabase_service_key:
         raise HTTPException(status_code=500, detail="Supabase credentials are not configured")

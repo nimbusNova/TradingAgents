@@ -84,34 +84,38 @@ export default function LiveAnalysisView({
   useEffect(() => {
     if (isDone && Object.keys(initialSections).length > 0) return; // already done, no stream needed
 
-    const es = new EventSource(streamRunUrl(runId));
-    esRef.current = es;
+    let cancelled = false;
+    streamRunUrl(runId).then((url) => {
+      if (cancelled) return;
+      const es = new EventSource(url);
+      esRef.current = es;
 
-    es.onmessage = (e) => {
-      const ev: SseEvent = JSON.parse(e.data);
-      setEvents((prev) => [...prev, ev]);
+      es.onmessage = (e) => {
+        const ev: SseEvent = JSON.parse(e.data);
+        setEvents((prev) => [...prev, ev]);
 
-      if (ev.type === "agent_status") {
-        setStatuses((prev) => ({ ...prev, [ev.agent]: ev.status }));
-      } else if (ev.type === "report_section") {
-        setSections((prev) => ({ ...prev, [ev.section]: ev.content }));
-      } else if (ev.type === "done") {
-        setDecision(ev.decision);
-        setIsDone(true);
+        if (ev.type === "agent_status") {
+          setStatuses((prev) => ({ ...prev, [ev.agent]: ev.status }));
+        } else if (ev.type === "report_section") {
+          setSections((prev) => ({ ...prev, [ev.section]: ev.content }));
+        } else if (ev.type === "done") {
+          setDecision(ev.decision);
+          setIsDone(true);
+          es.close();
+        } else if (ev.type === "error") {
+          setError(ev.message);
+          setIsDone(true);
+          es.close();
+        }
+      };
+
+      es.onerror = () => {
+        if (!isDone) setError("Connection lost — the run may have finished.");
         es.close();
-      } else if (ev.type === "error") {
-        setError(ev.message);
-        setIsDone(true);
-        es.close();
-      }
-    };
+      };
+    });
 
-    es.onerror = () => {
-      if (!isDone) setError("Connection lost — the run may have finished.");
-      es.close();
-    };
-
-    return () => es.close();
+    return () => { cancelled = true; esRef.current?.close(); };
   }, [runId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const completedAgents = Object.values(statuses).filter((s) => s === "completed").length;
