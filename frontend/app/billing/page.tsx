@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase";
@@ -16,7 +16,7 @@ interface CreditRow {
   created_at: string;
 }
 
-export default function BillingPage() {
+function BillingContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [balance, setBalance] = useState<number | null>(null);
@@ -163,5 +163,13 @@ export default function BillingPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+export default function BillingPage() {
+  return (
+    <Suspense>
+      <BillingContent />
+    </Suspense>
   );
 }
