@@ -1,0 +1,15 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - tradingagents_data:/root/.tradingagents
+    restart: "no"
+
+volumes:
+  tradingagents_data:
