@@ -45,7 +45,7 @@ async def create_run(
             run_id,
             user_id or None,
             ticker,
-            trade_date,
+            datetime.fromisoformat(trade_date).date() if isinstance(trade_date, str) else trade_date,
             json.dumps(config),
             config.get("llm_provider"),
             datetime.utcnow(),
