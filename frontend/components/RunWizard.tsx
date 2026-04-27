@@ -73,7 +73,7 @@ export default function RunWizard() {
     ticker: "",
     analysis_date: "",
     analysts: ["market", "social", "news", "fundamentals"],
-    research_depth: HOSTED ? 3 : 1,
+    research_depth: HOSTED ? DEPTHS[1].value : DEPTHS[0].value,
     output_language: "English",
     llm_provider: "",
     quick_think_llm: "",
@@ -159,7 +159,7 @@ export default function RunWizard() {
   function getLogicalStep(s: number): number {
     if (!HOSTED) return s;
     // Hosted: 0→0, 1→1, 2→5 (review)
-    return s < 2 ? s : 5;
+    return s < 2 ? s : FULL_STEPS.length - 1;
   }
 
   const logicalStep = getLogicalStep(step);

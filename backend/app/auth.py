@@ -2,9 +2,12 @@
 from __future__ import annotations
 import os
 
+import jwt  # PyJWT
 from fastapi import HTTPException, Request
 
 from .db import USE_ACTUAL_DB
+
+_JWT_SECRET: str | None = os.environ.get("SUPABASE_JWT_SECRET")
 
 
 def get_current_user(request: Request) -> dict:
@@ -16,16 +19,14 @@ def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
     token = auth_header[len("Bearer "):]
-    import jwt  # PyJWT
 
-    jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
-    if not jwt_secret:
+    if not _JWT_SECRET:
         raise HTTPException(status_code=500, detail="SUPABASE_JWT_SECRET is not configured")
 
     try:
         payload = jwt.decode(
             token,
-            jwt_secret,
+            _JWT_SECRET,
             algorithms=["HS256"],
             options={"verify_aud": False},
         )
