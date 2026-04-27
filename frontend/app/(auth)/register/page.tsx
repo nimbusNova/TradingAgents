@@ -2,6 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase";
+import { track } from "@vercel/analytics";
 
 function GoogleIcon() {
   return (
@@ -31,11 +32,13 @@ export default function RegisterPage() {
       setError(error.message);
       setLoading(false);
     } else {
+      track("signup_completed", { method: "email" });
       setDone(true);
     }
   }
 
   async function handleGoogle() {
+    track("signup_completed", { method: "google" });
     const supabase = getBrowserClient();
     await supabase.auth.signInWithOAuth({
       provider: "google",

@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getBrowserClient } from "@/lib/supabase";
+import { track } from "@vercel/analytics";
 
 function GoogleIcon() {
   return (
@@ -16,7 +16,6 @@ function GoogleIcon() {
 }
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -32,12 +31,15 @@ export default function LoginPage() {
       setError(error.message);
       setLoading(false);
     } else {
-      router.push("/");
-      router.refresh();
+      track("login", { method: "email" });
+      // Full page navigation so the fresh auth cookie is included in the
+      // very first server request, preventing a middleware redirect race.
+      window.location.href = "/";
     }
   }
 
   async function handleGoogle() {
+    track("login", { method: "google" });
     const supabase = getBrowserClient();
     await supabase.auth.signInWithOAuth({
       provider: "google",

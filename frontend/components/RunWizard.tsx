@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Provider } from "@/lib/types";
 import { createRun, listProviders } from "@/lib/api";
+import { track } from "@vercel/analytics";
 
 const HOSTED = process.env.NEXT_PUBLIC_HOSTED_MODE === "true";
 
@@ -20,6 +21,7 @@ const DEPTHS = [
   { value: 5, label: "Deep",     desc: "5 rounds — thorough, higher cost" },
 ];
 
+
 const LANGUAGES = [
   "English","Chinese","Japanese","Korean","Spanish","French","German","Portuguese","Arabic","Russian",
 ];
@@ -35,8 +37,8 @@ const THINKING_OPTIONS = [
   { value: "high",    label: "Enabled (recommended)" },
 ];
 
-// Hosted mode has 4 steps (no Provider/Models); open-source has 6
-const HOSTED_STEPS = ["Ticker & Date", "Analysts", "Depth & Language", "Review"];
+// Hosted mode has 3 steps (no Depth/Language/Provider/Models); open-source has 6
+const HOSTED_STEPS = ["Ticker & Date", "Analysts", "Review"];
 const FULL_STEPS   = ["Ticker & Date", "Analysts", "Depth & Language", "Provider", "Models", "Review"];
 
 interface FormState {
@@ -71,7 +73,7 @@ export default function RunWizard() {
     ticker: "",
     analysis_date: "",
     analysts: ["market", "social", "news", "fundamentals"],
-    research_depth: 1,
+    research_depth: HOSTED ? DEPTHS[1].value : DEPTHS[0].value,
     output_language: "English",
     llm_provider: "",
     quick_think_llm: "",
@@ -133,11 +135,19 @@ export default function RunWizard() {
         google_thinking_level: selectedProvider?.thinking_config === "thinking_level" ? form.google_thinking_level : null,
         anthropic_effort: selectedProvider?.thinking_config === "effort" ? form.anthropic_effort : null,
       });
+      track("run_submitted", {
+        ticker: form.ticker.toUpperCase(),
+        analysts: form.analysts.join(","),
+        depth: form.research_depth,
+        provider: form.llm_provider,
+        cached: run.cache_hit ?? false,
+      });
       router.push(`/run/${run.id}`);
     } catch (e: unknown) {
       const msg = String(e);
       if (msg.includes("no_credits")) {
         setNoCredits(true);
+        track("out_of_credits_shown");
       } else {
         setError(msg);
       }
@@ -145,11 +155,11 @@ export default function RunWizard() {
     }
   }
 
-  // Map wizard step index to logical step (hosted skips provider=3, models=4)
+  // Map wizard step index to logical step (hosted skips depth=2, provider=3, models=4)
   function getLogicalStep(s: number): number {
     if (!HOSTED) return s;
-    // Hosted: 0→0, 1→1, 2→2, 3→5 (review)
-    return s < 3 ? s : 5;
+    // Hosted: 0→0, 1→1, 2→5 (review)
+    return s < 2 ? s : FULL_STEPS.length - 1;
   }
 
   const logicalStep = getLogicalStep(step);
@@ -426,7 +436,10 @@ export default function RunWizard() {
 
         {step < STEPS.length - 1 ? (
           <button
-            onClick={() => setStep((s) => s + 1)}
+            onClick={() => {
+              track("wizard_step_completed", { step: step + 1, step_name: STEPS[step] });
+              setStep((s) => s + 1);
+            }}
             disabled={!canNext()}
             className="px-5 py-2 rounded bg-green-700 hover:bg-green-600 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-medium"
           >
