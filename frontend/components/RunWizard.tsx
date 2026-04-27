@@ -21,8 +21,6 @@ const DEPTHS = [
   { value: 5, label: "Deep",     desc: "5 rounds — thorough, higher cost" },
 ];
 
-// Hosted mode is locked to medium depth
-const VISIBLE_DEPTHS = HOSTED ? DEPTHS.filter((d) => d.value === 3) : DEPTHS;
 
 const LANGUAGES = [
   "English","Chinese","Japanese","Korean","Spanish","French","German","Portuguese","Arabic","Russian",
@@ -39,8 +37,8 @@ const THINKING_OPTIONS = [
   { value: "high",    label: "Enabled (recommended)" },
 ];
 
-// Hosted mode has 4 steps (no Provider/Models); open-source has 6
-const HOSTED_STEPS = ["Ticker & Date", "Analysts", "Depth & Language", "Review"];
+// Hosted mode has 3 steps (no Depth/Language/Provider/Models); open-source has 6
+const HOSTED_STEPS = ["Ticker & Date", "Analysts", "Review"];
 const FULL_STEPS   = ["Ticker & Date", "Analysts", "Depth & Language", "Provider", "Models", "Review"];
 
 interface FormState {
@@ -157,11 +155,11 @@ export default function RunWizard() {
     }
   }
 
-  // Map wizard step index to logical step (hosted skips provider=3, models=4)
+  // Map wizard step index to logical step (hosted skips depth=2, provider=3, models=4)
   function getLogicalStep(s: number): number {
     if (!HOSTED) return s;
-    // Hosted: 0→0, 1→1, 2→2, 3→5 (review)
-    return s < 3 ? s : 5;
+    // Hosted: 0→0, 1→1, 2→5 (review)
+    return s < 2 ? s : 5;
   }
 
   const logicalStep = getLogicalStep(step);
@@ -280,7 +278,7 @@ export default function RunWizard() {
           <div>
             <p className="text-sm text-gray-400 mb-2">Research Depth</p>
             <div className="space-y-2">
-              {VISIBLE_DEPTHS.map(({ value, label, desc }) => (
+              {DEPTHS.map(({ value, label, desc }) => (
                 <label
                   key={value}
                   className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
