@@ -77,8 +77,8 @@ async def get_run(run_id: str) -> dict | None:
         if not row:
             return None
         d = dict(row)
-        # Stringify dates/timestamps for JSON serialisation compatibility
-        for k in ("trade_date", "created_at", "finished_at"):
+        # Stringify UUIDs and dates — asyncpg returns them as native Python objects
+        for k in ("id", "user_id", "cache_source_run_id", "trade_date", "created_at", "finished_at"):
             if d.get(k) is not None:
                 d[k] = str(d[k])
         return d
