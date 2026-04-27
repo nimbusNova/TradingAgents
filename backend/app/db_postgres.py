@@ -13,7 +13,7 @@ _pool: Optional[asyncpg.Pool] = None
 def _admin_client() -> Client:
     return create_client(
         os.environ["SUPABASE_URL"],
-        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+        os.environ["SUPABASE_SECRET_KEY"],
     )
 
 

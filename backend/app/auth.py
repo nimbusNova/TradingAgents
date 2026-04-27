@@ -8,7 +8,7 @@ from supabase import create_client
 from .db import USE_ACTUAL_DB
 
 _supabase_url: str | None = os.environ.get("SUPABASE_URL")
-_supabase_service_key: str | None = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+_supabase_service_key: str | None = os.environ.get("SUPABASE_SECRET_KEY")
 
 
 def get_current_user(request: Request) -> dict:
