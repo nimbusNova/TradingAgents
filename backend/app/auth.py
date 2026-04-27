@@ -2,12 +2,13 @@
 from __future__ import annotations
 import os
 
-import jwt  # PyJWT
 from fastapi import HTTPException, Request
+from supabase import create_client
 
 from .db import USE_ACTUAL_DB
 
-_JWT_SECRET: str | None = os.environ.get("SUPABASE_JWT_SECRET")
+_supabase_url: str | None = os.environ.get("SUPABASE_URL")
+_supabase_service_key: str | None = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 
 def get_current_user(request: Request) -> dict:
@@ -20,19 +21,16 @@ def get_current_user(request: Request) -> dict:
 
     token = auth_header[len("Bearer "):]
 
-    if not _JWT_SECRET:
-        raise HTTPException(status_code=500, detail="SUPABASE_JWT_SECRET is not configured")
+    if not _supabase_url or not _supabase_service_key:
+        raise HTTPException(status_code=500, detail="Supabase credentials are not configured")
 
     try:
-        payload = jwt.decode(
-            token,
-            _JWT_SECRET,
-            algorithms=["HS256"],
-            options={"verify_aud": False},
-        )
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
+        client = create_client(_supabase_url, _supabase_service_key)
+        response = client.auth.get_user(token)
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    return payload
+    if not response.user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    return {"sub": response.user.id, "email": response.user.email}
